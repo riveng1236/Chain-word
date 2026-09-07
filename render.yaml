@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: chain-word-online
+    runtime: node
+    buildCommand: npm install
+    startCommand: npm start
+    plan: free
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false

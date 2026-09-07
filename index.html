@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Chain Word</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:#10131a;color:#f5f7fb;min-height:100vh}
+.wrap{width:min(760px,94%);margin:0 auto;padding:30px 0}.card{background:#191e28;border:1px solid #2c3442;border-radius:22px;padding:24px;box-shadow:0 16px 50px #0005}
+h1{font-size:42px;margin:0 0 6px}.sub{color:#aeb7c7;margin-bottom:22px}.row{display:flex;gap:10px;flex-wrap:wrap}
+input,button{border:0;border-radius:13px;padding:13px 15px;font-size:16px}input{background:#0e1218;color:white;border:1px solid #313949;flex:1;min-width:170px}button{background:#fff;color:#111;font-weight:750;cursor:pointer}button.alt{background:#2a3240;color:white}
+.hidden{display:none}.room{font-size:30px;letter-spacing:5px;font-weight:900}.players{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:18px 0}.player{padding:15px;background:#11161e;border-radius:15px}.hearts{font-size:22px;margin-top:6px}.turn{font-weight:800;font-size:19px;margin:15px 0}.timer{font-size:56px;font-weight:900;text-align:center;margin:10px 0}.last{font-size:18px;color:#aeb7c7}.word{font-size:42px;font-weight:900;word-break:break-word;margin:8px 0 20px}.msg{min-height:26px;margin-top:12px;color:#aeb7c7}.good{color:#76e39b}.bad{color:#ff8795}.history{display:flex;gap:8px;flex-wrap:wrap;margin-top:18px}.chip{background:#252d3a;padding:7px 10px;border-radius:10px}.center{text-align:center}.small{font-size:13px;color:#8993a5}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div id="home" class="card">
+<h1>⛓️ Chain Word</h1><div class="sub">Two players · English · 15 seconds · 3 hearts</div>
+<input id="name" placeholder="Your name" maxlength="16">
+<div class="row" style="margin-top:10px">
+<button onclick="create()">Create Room</button>
+<button class="alt" onclick="showJoin()">Join Room</button>
+<button class="alt" onclick="singlePlayer()">Play vs AI</button>
+</div>
+<div id="joinBox" class="hidden" style="margin-top:12px"><div class="row"><input id="code" placeholder="Room code" maxlength="4"><button onclick="join()">Join</button></div></div>
+<div class="small" style="margin-top:18px">
+<strong>เล่นง่าย ๆ:</strong> เปิดเกม → Create Room → ส่งรหัส 4 ตัวให้เพื่อน → เพื่อน Join Room → Host กด Start
+<br>ถ้าเล่นคนเดียว กด <strong>Play vs AI</strong>
+</div>
+<div id="homeMsg" class="msg"></div>
+</div>
+
+
+<div id="solo" class="card hidden">
+<div class="players">
+<div class="player"><b>You</b><div id="soloH0" class="hearts">❤️❤️❤️</div></div>
+<div class="player"><b>AI 🤖</b><div id="soloH1" class="hearts">❤️❤️❤️</div></div>
+</div>
+<div class="center">
+<div id="soloTurn" class="turn">YOUR TURN</div>
+<div id="soloTimer" class="timer">15</div>
+<div class="last">Next word must start with:</div>
+<div id="soloLetter" class="word">ANY</div>
+<input id="soloWord" autocomplete="off" autocapitalize="none" placeholder="Type your English word..." onkeydown="if(event.key==='Enter')soloSubmit()">
+<button style="margin-top:10px;width:100%" onclick="soloSubmit()">Submit</button>
+<div id="soloMsg" class="msg"></div>
+</div>
+<div id="soloHistory" class="history"></div>
+</div>
+
+<div id="lobby" class="card hidden">
+<div class="small">ROOM CODE</div><div id="roomCode" class="room">----</div>
+<div class="sub">Send this code to your friend.</div>
+<div id="lobbyPlayers"></div>
+<button id="startBtn" onclick="start()" class="hidden">Start Game</button>
+<div id="lobbyMsg" class="msg"></div>
+</div>
+
+<div id="game" class="card hidden">
+<div class="players"><div class="player"><b id="p0">Player 1</b><div id="h0" class="hearts">❤️❤️❤️</div></div><div class="player"><b id="p1">Player 2</b><div id="h1" class="hearts">❤️❤️❤️</div></div></div>
+<div class="center"><div id="turn" class="turn">Waiting...</div><div id="timer" class="timer">15</div><div class="last">Next word must start with:</div><div id="letter" class="word">ANY</div>
+<input id="word" autocomplete="off" autocapitalize="none" placeholder="Type your English word..." onkeydown="if(event.key==='Enter')submitWord()">
+<button style="margin-top:10px;width:100%" onclick="submitWord()">Submit</button>
+<div id="msg" class="msg"></div></div>
+<div id="history" class="history"></div>
+</div>
+</div>
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const socket=io(); let room="", myId="", endsAt=0, timerInt=null;
+
+let solo={active:false,turn:0,hearts:[3,3],words:[],used:new Set(),endsAt:0,timer:null};
+const SOLO_WORDS = [
+"apple","eagle","earth","house","elephant","tiger","rabbit","tree","egg","grape","orange",
+"engine","energy","yellow","window","water","river","road","dog","garden","night","table",
+"hotel","lemon","moon","notebook","king","goat","train","number","radio","ocean","nest",
+"star","rain","snake","tomato","umbrella","ant","top","piano","lion","nut","turtle","nose",
+"ear","ring","game","tea","envelope","lion","nest","stone","elephant","truck","kite","eggplant"
+];
+function singlePlayer(){
+ solo={active:true,turn:0,hearts:[3,3],words:[],used:new Set(),endsAt:0,timer:null};
+ show("solo"); renderSolo(); soloStartTurn();
+}
+function soloRenderHearts(i){return "❤️".repeat(solo.hearts[i])+"🖤".repeat(3-solo.hearts[i])}
+function renderSolo(){
+ $("soloH0").textContent=soloRenderHearts(0); $("soloH1").textContent=soloRenderHearts(1);
+ const last=solo.words.at(-1)||"";
+ $("soloLetter").textContent=last?last.at(-1).toUpperCase():"ANY";
+ $("soloHistory").innerHTML=solo.words.map(w=>`<span class="chip">${esc(w)}</span>`).join("");
+ $("soloTurn").textContent=solo.turn===0?"YOUR TURN":"AI'S TURN";
+ $("soloWord").disabled=solo.turn!==0 || !solo.active;
+}
+function soloStartTurn(){
+ clearInterval(solo.timer); solo.endsAt=Date.now()+15000; renderSolo(); soloTick();
+ if(solo.turn===1) setTimeout(aiMove,650);
+}
+function soloTick(){
+ clearInterval(solo.timer);
+ solo.timer=setInterval(()=>{
+   const n=Math.max(0,Math.ceil((solo.endsAt-Date.now())/1000)); $("soloTimer").textContent=n;
+   if(n<=0){clearInterval(solo.timer); if(solo.turn===0) soloMistake("Time's up!");}
+ },100);
+}
+function soloMistake(reason){
+ if(!solo.active)return; solo.hearts[solo.turn]--; $("soloMsg").className="msg bad"; $("soloMsg").textContent="✕ "+reason;
+ if(solo.hearts[solo.turn]<=0){soloEnd(1-solo.turn);return}
+ solo.turn=1-solo.turn; renderSolo(); soloStartTurn();
+}
+function soloSubmit(){
+ if(!solo.active||solo.turn!==0)return;
+ let w=normalizeSolo($("soloWord").value); $("soloWord").value="";
+ if(!w){soloMistake("Enter a word.");return}
+ const last=solo.words.at(-1);
+ if(solo.used.has(w)){soloMistake("That word was already used.");return}
+ solo.used.add(w);
+ if(last && w[0]!==last.at(-1)){soloMistake(`Your word must start with "${last.at(-1).toUpperCase()}".`);return}
+ if(!SOLO_WORDS.includes(w)){soloMistake("That isn't a recognized English word.");return}
+ solo.words.push(w); $("soloMsg").className="msg good"; $("soloMsg").textContent="✓ Accepted: "+w;
+ solo.turn=1; renderSolo(); soloStartTurn();
+}
+function normalizeSolo(w){return String(w||"").trim().toLowerCase().replace(/[^a-z]/g,"")}
+function aiMove(){
+ if(!solo.active||solo.turn!==1)return;
+ const last=solo.words.at(-1), needed=last?last.at(-1):null;
+ const choices=SOLO_WORDS.filter(w=>!solo.used.has(w)&&(!needed||w[0]===needed));
+ if(!choices.length){soloMistake("AI could not find a word.");return}
+ const w=choices[Math.floor(Math.random()*choices.length)];
+ solo.used.add(w); solo.words.push(w); $("soloMsg").className="msg good"; $("soloMsg").textContent="🤖 AI played: "+w;
+ solo.turn=0; renderSolo(); soloStartTurn();
+}
+function soloEnd(winner){
+ solo.active=false; clearInterval(solo.timer); renderSolo();
+ $("soloTurn").textContent=winner===0?"🏆 YOU WIN!":"💀 AI WINS!";
+ $("soloMsg").textContent="Game over. Press Play vs AI on the home screen to start a new game.";
+ $("soloWord").disabled=true;
+}
+
+const $=id=>document.getElementById(id);
+socket.on("connect",()=>myId=socket.id);
+function show(id){["home","lobby","game"].forEach(x=>$(x).classList.toggle("hidden",x!==id))}
+function create(){socket.emit("createRoom",{name:$("name").value||"Player 1"})}
+function showJoin(){$("joinBox").classList.toggle("hidden")}
+function join(){socket.emit("joinRoom",{code:$("code").value,name:$("name").value||"Player 2"})}
+socket.on("roomCreated",x=>{room=x.code;show("lobby")});
+socket.on("joinedRoom",x=>{room=x.code;show("lobby")});
+socket.on("state",s=>{
+ if(s.players.length===2&&s.started)show("game");
+ if(!s.started&&s.players.length<2)show("lobby");
+ $("roomCode").textContent=room;
+ $("lobbyPlayers").innerHTML=s.players.map(p=>`<div class="player"><b>${esc(p.name)}</b> ${p.id===myId?"(You)":""}<div class="hearts">${"❤️".repeat(p.hearts)}${"🖤".repeat(3-p.hearts)}</div></div>`).join("");
+ $("startBtn").classList.toggle("hidden",!(s.players.length===2&&!s.started&&s.players[0].id===myId));
+ s.players.forEach((p,i)=>{$("p"+i).textContent=p.name+(p.id===myId?" (You)":"");$("h"+i).textContent="❤️".repeat(p.hearts)+"🖤".repeat(3-p.hearts)});
+ const last=s.words.at(-1)||"";
+ $("letter").textContent=last?last.at(-1).toUpperCase():"ANY";
+ $("history").innerHTML=s.words.map(w=>`<span class="chip">${esc(w)}</span>`).join("");
+});
+socket.on("turnStart",x=>{endsAt=x.endsAt;tick(); $("turn").textContent=x.playerId===myId?"YOUR TURN":"OPPONENT'S TURN";$("word").disabled=x.playerId!==myId;$("word").focus()});
+socket.on("accepted",x=>{$("msg").className="msg good";$("msg").textContent="✓ Accepted: "+x.word});
+socket.on("mistake",x=>{$("msg").className="msg bad";$("msg").textContent="✕ "+x.reason});
+socket.on("gameOver",x=>{clearInterval(timerInt);$("turn").textContent=x.winnerId===myId?"🏆 YOU WIN!":"💀 YOU LOSE";$("word").disabled=true;$("msg").textContent="Game over."});
+socket.on("errorMessage",m=>{$("homeMsg").textContent=m;$("lobbyMsg").textContent=m;$("msg").textContent=m});
+function start(){socket.emit("startGame",{code:room})}
+function submitWord(){if($("word").disabled)return;let w=$("word").value.trim();if(!w)return;socket.emit("submitWord",{code:room,word:w});$("word").value=""}
+function tick(){clearInterval(timerInt);timerInt=setInterval(()=>{let n=Math.max(0,Math.ceil((endsAt-Date.now())/1000));$("timer").textContent=n;if(n<=0)clearInterval(timerInt)},100)}
+function esc(s){return s.replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+</script>
+</body>
+</html>
